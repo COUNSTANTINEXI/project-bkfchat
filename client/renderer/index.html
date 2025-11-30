@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BKFChat - 聊天客户端</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 登录/注册界面 -->
+        <div id="authScreen" class="screen">
+            <div class="auth-box">
+                <h1>BKFChat</h1>
+                
+                <!-- 标签切换 -->
+                <div class="auth-tabs">
+                    <button id="loginTab" class="tab-btn active">登录</button>
+                    <button id="registerTab" class="tab-btn">注册</button>
+                </div>
+
+                <!-- 服务器地址 -->
+                <div class="input-group">
+                    <label for="serverUrl">服务器地址:</label>
+                    <input type="text" id="serverUrl" placeholder="http://localhost:3000" value="http://localhost:3000">
+                </div>
+
+                <!-- 登录表单 -->
+                <div id="loginForm" class="auth-form">
+                    <div class="input-group">
+                        <label for="loginUsername">用户名:</label>
+                        <input type="text" id="loginUsername" placeholder="请输入用户名" maxlength="20">
+                    </div>
+                    <div class="input-group">
+                        <label for="loginPassword">密码:</label>
+                        <input type="password" id="loginPassword" placeholder="请输入密码">
+                    </div>
+                    <button id="loginBtn" class="btn btn-primary">登录</button>
+                </div>
+
+                <!-- 注册表单 -->
+                <div id="registerForm" class="auth-form hidden">
+                    <div class="input-group">
+                        <label for="registerUsername">用户名:</label>
+                        <input type="text" id="registerUsername" placeholder="3-20个字符" maxlength="20">
+                    </div>
+                    <div class="input-group">
+                        <label for="registerPassword">密码:</label>
+                        <input type="password" id="registerPassword" placeholder="至少6个字符">
+                    </div>
+                    <div class="input-group">
+                        <label for="registerPasswordConfirm">确认密码:</label>
+                        <input type="password" id="registerPasswordConfirm" placeholder="再次输入密码">
+                    </div>
+                    <div class="input-group">
+                        <label for="registerEmail">邮箱 (可选):</label>
+                        <input type="email" id="registerEmail" placeholder="your@email.com">
+                    </div>
+                    <button id="registerBtn" class="btn btn-primary">注册</button>
+                </div>
+
+                <div id="authError" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- 聊天界面 -->
+        <div id="chatScreen" class="chat-screen hidden">
+            <div class="chat-header">
+                <div class="header-info">
+                    <h2>BKFChat</h2>
+                    <div class="status-group">
+                        <span id="statusIndicator" class="status-indicator">●</span>
+                        <span id="statusText">已连接</span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <span id="onlineCount" class="online-count">在线: 0</span>
+                    <button id="disconnectBtn" class="btn btn-secondary">断开</button>
+                </div>
+            </div>
+
+            <div class="chat-body">
+                <div class="sidebar">
+                    <div class="sidebar-header">
+                        <h3>在线用户</h3>
+                        <span class="user-count-badge" id="userCountBadge">0</span>
+                    </div>
+                    <div id="usersList" class="users-list"></div>
+                </div>
+
+                <div class="chat-main">
+                    <div id="messagesContainer" class="messages-container"></div>
+                    <div id="typingIndicator" class="typing-indicator"></div>
+                    <div class="input-area">
+                        <input type="text" id="messageInput" placeholder="输入消息..." maxlength="500">
+                        <button id="sendBtn" class="btn btn-primary">
+                            <span class="btn-text">发送</span>
+                            <span class="btn-icon">➤</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script src="renderer.js"></script>
+</body>
+</html>
+
