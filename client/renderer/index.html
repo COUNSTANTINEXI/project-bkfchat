@@ -2,7 +2,10 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>BKFChat - 聊天客户端</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -74,19 +77,24 @@
                     </div>
                 </div>
                 <div class="header-actions">
+                    <button id="sidebarToggle" class="btn-icon-only" title="在线用户">
+                        <span>👥</span>
+                    </button>
                     <span id="onlineCount" class="online-count">在线: 0</span>
                     <button id="disconnectBtn" class="btn btn-secondary">断开</button>
                 </div>
             </div>
 
             <div class="chat-body">
-                <div class="sidebar">
+                <div class="sidebar" id="sidebar">
                     <div class="sidebar-header">
                         <h3>在线用户</h3>
                         <span class="user-count-badge" id="userCountBadge">0</span>
+                        <button class="sidebar-close" id="sidebarClose">✕</button>
                     </div>
                     <div id="usersList" class="users-list"></div>
                 </div>
+                <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
                 <div class="chat-main">
                     <div id="messagesContainer" class="messages-container"></div>

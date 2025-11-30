@@ -31,6 +31,10 @@ const typingIndicator = document.getElementById('typingIndicator');
 const statusIndicator = document.getElementById('statusIndicator');
 const statusText = document.getElementById('statusText');
 const onlineCount = document.getElementById('onlineCount');
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebarToggle');
+const sidebarClose = document.getElementById('sidebarClose');
+const sidebarOverlay = document.getElementById('sidebarOverlay');
 
 let typingTimeout = null;
 
@@ -109,6 +113,69 @@ registerPasswordConfirmInput.addEventListener('keypress', (e) => {
 
 // 断开连接
 disconnectBtn.addEventListener('click', disconnect);
+
+// 侧边栏控制
+if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', () => {
+        openSidebar();
+    });
+}
+
+if (sidebarClose) {
+    sidebarClose.addEventListener('click', () => {
+        closeSidebar();
+    });
+}
+
+if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', () => {
+        closeSidebar();
+    });
+}
+
+function openSidebar() {
+    if (sidebar) {
+        sidebar.classList.add('open');
+        if (sidebarOverlay) {
+            sidebarOverlay.classList.add('active');
+        }
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeSidebar() {
+    if (sidebar) {
+        sidebar.classList.remove('open');
+        if (sidebarOverlay) {
+            sidebarOverlay.classList.remove('active');
+        }
+        document.body.style.overflow = '';
+    }
+}
+
+// 检测屏幕尺寸，自动调整侧边栏显示
+function handleResize() {
+    if (window.innerWidth > 768) {
+        // 桌面端：侧边栏始终显示（通过CSS控制，不需要open类）
+        if (sidebar) {
+            sidebar.classList.remove('open');
+            if (sidebarOverlay) {
+                sidebarOverlay.classList.remove('active');
+            }
+        }
+    } else {
+        // 移动端：默认隐藏
+        if (sidebar) {
+            sidebar.classList.remove('open');
+            if (sidebarOverlay) {
+                sidebarOverlay.classList.remove('active');
+            }
+        }
+    }
+}
+
+window.addEventListener('resize', handleResize);
+handleResize(); // 初始化
 
 // 发送消息
 sendBtn.addEventListener('click', sendMessage);
@@ -464,6 +531,7 @@ function disconnect() {
     messagesContainer.innerHTML = '';
     usersList.innerHTML = '';
     messageInput.value = '';
+    closeSidebar(); // 关闭侧边栏
     
     // 可选：清除保存的 token
     // localStorage.removeItem('bkfchat_token');
@@ -555,18 +623,103 @@ function showError(message) {
 }
 
 function formatTime(timestamp) {
-    const date = new Date(timestamp);
+    if (!timestamp) return '';
+    
+    let date;
+    
+    // 处理不同的时间戳格式
+    if (typeof timestamp === 'string') {
+        // 如果是 SQLite DATETIME 格式 (YYYY-MM-DD HH:MM:SS) - 本地时间格式
+        if (timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+            // 服务器发送的是本地时间，需要手动解析为本地时间
+            // 因为 new Date('YYYY-MM-DDTHH:MM:SS') 会被解析为UTC时间
+            const parts = timestamp.split(' ');
+            const datePart = parts[0].split('-');
+            const timePart = parts[1].split(':');
+            // 使用 Date 构造函数：new Date(year, monthIndex, day, hours, minutes, seconds)
+            // monthIndex 从 0 开始，所以需要减1
+            date = new Date(
+                parseInt(datePart[0]),      // year
+                parseInt(datePart[1]) - 1,   // month (0-11)
+                parseInt(datePart[2]),       // day
+                parseInt(timePart[0]),       // hours
+                parseInt(timePart[1]),       // minutes
+                parseInt(timePart[2])        // seconds
+            );
+        } else if (timestamp.includes('T') && timestamp.includes('Z')) {
+            // ISO 8601 UTC 格式 (2024-01-01T12:00:00.000Z)
+            date = new Date(timestamp);
+        } else if (timestamp.includes('T')) {
+            // ISO 8601 格式，但没有Z，可能是本地时间
+            // 为了安全，也手动解析
+            const isoParts = timestamp.split('T');
+            const datePart = isoParts[0].split('-');
+            const timePart = isoParts[1].split(':');
+            date = new Date(
+                parseInt(datePart[0]),
+                parseInt(datePart[1]) - 1,
+                parseInt(datePart[2]),
+                parseInt(timePart[0]),
+                parseInt(timePart[1]),
+                parseInt(timePart[2] || 0)
+            );
+        } else {
+            // 尝试直接解析
+            date = new Date(timestamp);
+        }
+    } else if (typeof timestamp === 'number') {
+        // 数字时间戳（毫秒）
+        date = new Date(timestamp);
+    } else {
+        date = new Date(timestamp);
+    }
+    
+    // 检查日期是否有效
+    if (isNaN(date.getTime())) {
+        console.warn('无效的时间戳:', timestamp);
+        return '';
+    }
+    
+    // 使用本地时间进行比较（两者都是本地时间，避免时区问题）
     const now = new Date();
     const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-
-    if (minutes < 1) return '刚刚';
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    // 刚刚发送（30秒内）
+    if (seconds < 30) return '刚刚';
+    
+    // 1分钟内
+    if (seconds < 60) return `${seconds}秒前`;
+    
+    // 1小时内
     if (minutes < 60) return `${minutes}分钟前`;
-    if (minutes < 1440) return `${Math.floor(minutes / 60)}小时前`;
-
-    return date.toLocaleTimeString('zh-CN', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
+    
+    // 24小时内
+    if (hours < 24) return `${hours}小时前`;
+    
+    // 7天内
+    if (days < 7) return `${days}天前`;
+    
+    // 同一年：显示月-日 时:分
+    if (date.getFullYear() === now.getFullYear()) {
+        return date.toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+    
+    // 不同年：显示完整日期和时间
+    return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
     });
 }
 

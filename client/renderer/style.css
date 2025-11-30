@@ -543,3 +543,329 @@ body {
     padding: 40px;
     margin: auto;
 }
+
+/* 侧边栏控制按钮 */
+.btn-icon-only {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.3s;
+}
+
+.btn-icon-only:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.sidebar-close {
+    background: transparent;
+    border: none;
+    color: #657786;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.sidebar-close:hover {
+    background: #f7f9fa;
+    color: #14171a;
+}
+
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.sidebar-overlay.active {
+    display: block;
+    opacity: 1;
+}
+
+/* 桌面端：侧边栏始终显示 */
+@media screen and (min-width: 769px) {
+    .sidebar {
+        position: relative;
+        left: 0 !important;
+        width: 240px;
+        height: auto;
+        box-shadow: none;
+    }
+
+    .sidebar-overlay {
+        display: none !important;
+    }
+
+    .btn-icon-only {
+        display: none; /* 桌面端隐藏侧边栏切换按钮 */
+    }
+
+    .online-count {
+        display: inline-block !important; /* 桌面端显示在线人数 */
+    }
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+    /* 登录界面适配 */
+    .auth-box {
+        padding: 30px 20px;
+        margin: 20px;
+        max-width: 100%;
+        border-radius: 16px;
+    }
+
+    .auth-box h1 {
+        font-size: 28px;
+        margin-bottom: 24px;
+    }
+
+    .input-group {
+        margin-bottom: 16px;
+    }
+
+    .input-group input {
+        padding: 14px;
+        font-size: 16px; /* 防止iOS自动缩放 */
+    }
+
+    .btn {
+        padding: 14px 24px;
+        font-size: 16px;
+    }
+
+    /* 聊天界面适配 */
+    .chat-header {
+        padding: 12px 16px;
+        position: relative;
+        padding-top: env(safe-area-inset-top, 12px);
+    }
+
+    .header-info h2 {
+        font-size: 18px;
+    }
+
+    .header-actions {
+        gap: 8px;
+    }
+
+    .online-count {
+        font-size: 12px;
+        padding: 4px 8px;
+        display: none; /* 小屏幕隐藏，通过侧边栏查看 */
+    }
+
+    .btn-secondary {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+
+    /* 侧边栏改为抽屉式 */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: -280px;
+        height: 100vh;
+        width: 280px;
+        z-index: 999;
+        transition: left 0.3s ease;
+        box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .sidebar.open {
+        left: 0;
+    }
+
+    .sidebar-header {
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .sidebar-header h3 {
+        font-size: 14px;
+    }
+
+    /* 聊天主区域全宽 */
+    .chat-main {
+        width: 100%;
+    }
+
+    /* 消息容器适配 */
+    .messages-container {
+        padding: 16px 12px;
+        padding-bottom: env(safe-area-inset-bottom, 16px);
+    }
+
+    .message-content {
+        max-width: 80%;
+        padding: 10px 14px;
+        font-size: 15px;
+    }
+
+    .message-header {
+        font-size: 11px;
+    }
+
+    .message-username {
+        font-size: 12px;
+    }
+
+    .message-time {
+        font-size: 10px;
+    }
+
+    /* 输入区域适配 */
+    .input-area {
+        padding: 12px 16px;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        gap: 8px;
+    }
+
+    .input-area input {
+        padding: 12px 14px;
+        font-size: 16px; /* 防止iOS自动缩放 */
+        border-radius: 20px;
+    }
+
+    .input-area .btn {
+        padding: 12px 20px;
+        min-width: 70px;
+        border-radius: 20px;
+    }
+
+    .btn-text {
+        display: none; /* 小屏幕只显示图标 */
+    }
+
+    .btn-icon {
+        font-size: 18px;
+    }
+
+    /* 状态指示器 */
+    .status-group {
+        font-size: 12px;
+    }
+
+    .status-indicator {
+        font-size: 8px;
+    }
+}
+
+/* 超小屏幕适配 */
+@media screen and (max-width: 480px) {
+    .auth-box {
+        padding: 24px 16px;
+        margin: 16px;
+    }
+
+    .auth-box h1 {
+        font-size: 24px;
+    }
+
+    .chat-header {
+        padding: 10px 12px;
+        padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    }
+
+    .header-info h2 {
+        font-size: 16px;
+    }
+
+    .messages-container {
+        padding: 12px 8px;
+    }
+
+    .message-content {
+        max-width: 85%;
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+
+    .input-area {
+        padding: 10px 12px;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .input-area input {
+        padding: 10px 12px;
+        font-size: 15px;
+    }
+
+    .sidebar {
+        width: 260px;
+        left: -260px;
+    }
+}
+
+/* 横屏适配 */
+@media screen and (max-width: 768px) and (orientation: landscape) {
+    .chat-header {
+        padding: 8px 16px;
+    }
+
+    .header-info h2 {
+        font-size: 16px;
+    }
+
+    .messages-container {
+        padding: 12px;
+    }
+
+    .input-area {
+        padding: 8px 16px;
+    }
+}
+
+/* 安全区域支持（iOS和Android） */
+@supports (padding: max(0px)) {
+    .chat-header {
+        padding-top: max(12px, env(safe-area-inset-top));
+    }
+
+    .messages-container {
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+    }
+
+    .input-area {
+        padding-bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
+    }
+}
+
+/* 防止文本选择（移动端优化） */
+@media (pointer: coarse) {
+    .btn, .tab-btn, .sidebar-close, .btn-icon-only {
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+}
+
+/* 键盘弹出时的优化 */
+@media screen and (max-width: 768px) {
+    .chat-body {
+        height: 100vh;
+        height: -webkit-fill-available; /* iOS Safari */
+    }
+
+    .chat-screen {
+        height: 100vh;
+        height: -webkit-fill-available;
+    }
+}

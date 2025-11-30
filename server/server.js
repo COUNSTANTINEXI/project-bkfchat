@@ -26,6 +26,21 @@ app.use(express.json());
 // 存储在线用户（socketId -> userInfo）
 const onlineUsers = new Map();
 
+// 辅助函数：从Date对象获取本地时间戳字符串（格式：YYYY-MM-DD HH:MM:SS）
+function getLocalTimestampFromDate(date) {
+  return date.getFullYear() + '-' +
+    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+    String(date.getDate()).padStart(2, '0') + ' ' +
+    String(date.getHours()).padStart(2, '0') + ':' +
+    String(date.getMinutes()).padStart(2, '0') + ':' +
+    String(date.getSeconds()).padStart(2, '0');
+}
+
+// 辅助函数：获取当前本地时间戳字符串（格式：YYYY-MM-DD HH:MM:SS）
+function getLocalTimestamp() {
+  return getLocalTimestampFromDate(new Date());
+}
+
 // 中间件：验证 JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -216,7 +231,7 @@ io.on('connection', async (socket) => {
     username,
     userId,
     message: `${username} 加入了聊天室`,
-    timestamp: new Date().toISOString()
+    timestamp: getLocalTimestamp() // 使用本地时间格式
   });
 
   // 发送当前在线用户列表
@@ -226,14 +241,32 @@ io.on('connection', async (socket) => {
   // 发送消息历史
   try {
     const messages = await Message.getRecent(50);
-    const formattedMessages = messages.map(msg => ({
-      id: msg.id.toString(),
-      username: msg.username,
-      userId: msg.user_id,
-      message: msg.message,
-      timestamp: msg.created_at,
-      type: msg.type || 'text'
-    }));
+    const formattedMessages = messages.map(msg => {
+      // SQLite的CURRENT_TIMESTAMP返回的是UTC时间
+      // 需要转换为本地时间，与新消息的时间格式一致
+      let timestamp = msg.created_at;
+      if (!timestamp) {
+        timestamp = getLocalTimestamp();
+      } else {
+        // 将数据库的UTC时间转换为本地时间
+        // 数据库格式：YYYY-MM-DD HH:MM:SS (UTC)
+        // 转换为本地时间格式：YYYY-MM-DD HH:MM:SS (本地)
+        if (typeof timestamp === 'string' && timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+          // 解析为UTC时间，然后转换为本地时间
+          const utcDate = new Date(timestamp.replace(' ', 'T') + 'Z'); // 添加Z表示UTC
+          timestamp = getLocalTimestampFromDate(utcDate);
+        }
+      }
+      
+      return {
+        id: msg.id.toString(),
+        username: msg.username,
+        userId: msg.user_id,
+        message: msg.message,
+        timestamp: timestamp, // 使用本地时间格式
+        type: msg.type || 'text'
+      };
+    });
     socket.emit('message-history', formattedMessages);
   } catch (error) {
     console.error('获取消息历史错误:', error);
@@ -252,7 +285,7 @@ io.on('connection', async (socket) => {
       username: user.username,
       userId: user.userId,
       message: data.message,
-      timestamp: new Date().toISOString(),
+      timestamp: getLocalTimestamp(), // 使用本地时间格式，与数据库一致
       type: data.type || 'text'
     };
 
@@ -289,7 +322,7 @@ io.on('connection', async (socket) => {
       socket.broadcast.emit('user-left', {
         username: user.username,
         message: `${user.username} 离开了聊天室`,
-        timestamp: new Date().toISOString()
+        timestamp: getLocalTimestamp() // 使用本地时间格式
       });
 
       // 更新在线用户列表

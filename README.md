@@ -326,9 +326,7 @@ socket = io(serverUrl, {
 
 ## 已知问题
 
-聊天会话时间有误
-
-Android界面适配
+暂无
 
 ## 开发计划
 
