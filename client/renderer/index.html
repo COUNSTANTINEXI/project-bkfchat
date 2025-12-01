@@ -101,10 +101,13 @@
                 <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
                 <div class="chat-main">
+                    <div id="dropOverlay" class="drop-overlay hidden">释放以上传文件</div>
                     <div id="messagesContainer" class="messages-container"></div>
                     <div id="typingIndicator" class="typing-indicator"></div>
                     <div class="input-area">
                         <button id="emojiBtn" class="btn-emoji" title="表情">🤓</button>
+                        <button id="attachBtn" class="btn-attach" title="发送文件">📎</button>
+                        <input type="file" id="fileInput" class="hidden-file-input" multiple>
                         <input type="text" id="messageInput" placeholder="输入消息..." maxlength="500">
                         <button id="sendBtn" class="btn btn-primary">
                             <span class="btn-text">发送</span>

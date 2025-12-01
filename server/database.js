@@ -47,6 +47,9 @@ function initDatabase() {
         username TEXT NOT NULL,
         message TEXT NOT NULL,
         type TEXT DEFAULT 'text',
+        file_url TEXT,
+        file_name TEXT,
+        file_size INTEGER,
         receiver_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id),
@@ -56,11 +59,17 @@ function initDatabase() {
       if (err) {
         console.error('创建消息表错误:', err.message);
       } else {
-        // 添加 receiver_id 列（如果不存在）
-        db.run(`
-          ALTER TABLE messages ADD COLUMN receiver_id INTEGER
-        `, (err) => {
-          // 忽略错误（列可能已存在）
+        // 添加缺失列（如果不存在）
+        const alterStatements = [
+          `ALTER TABLE messages ADD COLUMN receiver_id INTEGER`,
+          `ALTER TABLE messages ADD COLUMN file_url TEXT`,
+          `ALTER TABLE messages ADD COLUMN file_name TEXT`,
+          `ALTER TABLE messages ADD COLUMN file_size INTEGER`
+        ];
+        alterStatements.forEach(stmt => {
+          db.run(stmt, (alterErr) => {
+            // 忽略错误（列可能已存在）
+          });
         });
       }
     });
@@ -158,11 +167,20 @@ const User = {
 // 消息相关操作
 const Message = {
   // 保存消息（receiverId 为 null 表示群聊消息）
-  save: (userId, username, message, type = 'text', receiverId = null) => {
+  save: (userId, username, message, type = 'text', receiverId = null, fileMeta = null) => {
     return new Promise((resolve, reject) => {
       db.run(
-        'INSERT INTO messages (user_id, username, message, type, receiver_id) VALUES (?, ?, ?, ?, ?)',
-        [userId, username, message, type, receiverId],
+        'INSERT INTO messages (user_id, username, message, type, receiver_id, file_url, file_name, file_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          userId,
+          username,
+          message,
+          type,
+          receiverId,
+          fileMeta?.url || null,
+          fileMeta?.name || null,
+          fileMeta?.size || null
+        ],
         function(err) {
           if (err) {
             reject(err);

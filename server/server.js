@@ -2,9 +2,12 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { User, Message } = require('./database');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +25,32 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json());
+
+// 静态文件目录（用于文件上传）
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR);
+}
+app.use('/uploads', express.static(UPLOAD_DIR));
+
+// 配置文件上传
+const storage = multer.diskStorage({
+  destination: function(req, file, cb) {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: function(req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 20MB
+  }
+});
 
 // 存储在线用户（socketId -> userInfo）
 const onlineUsers = new Map();
@@ -194,6 +223,28 @@ app.get('/api/verify', authenticateToken, async (req, res) => {
   }
 });
 
+// 文件上传接口
+app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: '未上传文件' });
+  }
+
+  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+  const mimeType = req.file.mimetype;
+  const messageType = mimeType.startsWith('image/') ? 'image' : 'file';
+
+  res.json({
+    success: true,
+    file: {
+      url: fileUrl,
+      name: req.file.originalname,
+      size: req.file.size,
+      mimeType,
+      messageType
+    }
+  });
+});
+
 // Socket.io 连接处理
 io.use((socket, next) => {
   // 验证 token
@@ -264,7 +315,10 @@ io.on('connection', async (socket) => {
         userId: msg.user_id,
         message: msg.message,
         timestamp: timestamp, // 使用本地时间格式
-        type: msg.type || 'text'
+        type: msg.type || 'text',
+        fileUrl: msg.file_url || null,
+        fileName: msg.file_name || null,
+        fileSize: msg.file_size || null
       };
     });
     socket.emit('message-history', formattedMessages);
@@ -287,12 +341,27 @@ io.on('connection', async (socket) => {
       message: data.message,
       timestamp: getLocalTimestamp(), // 使用本地时间格式，与数据库一致
       type: data.type || 'text',
-      isPrivate: false
+      isPrivate: false,
+      fileUrl: data.fileUrl || null,
+      fileName: data.fileName || null,
+      fileSize: data.fileSize || null,
+      mimeType: data.mimeType || null
     };
 
     // 保存到数据库（群聊消息，receiver_id 为 null）
     try {
-      await Message.save(user.userId, user.username, data.message, data.type || 'text', null);
+      await Message.save(
+        user.userId,
+        user.username,
+        data.message,
+        data.type || 'text',
+        null,
+        data.fileUrl ? {
+          url: data.fileUrl,
+          name: data.fileName || data.message,
+          size: data.fileSize || null
+        } : null
+      );
     } catch (error) {
       console.error('保存消息错误:', error);
     }
@@ -330,12 +399,27 @@ io.on('connection', async (socket) => {
       message: message,
       timestamp: getLocalTimestamp(),
       type: type || 'text',
-      isPrivate: true
+      isPrivate: true,
+      fileUrl: data.fileUrl || null,
+      fileName: data.fileName || null,
+      fileSize: data.fileSize || null,
+      mimeType: data.mimeType || null
     };
 
     // 保存到数据库
     try {
-      await Message.save(user.userId, user.username, message, type || 'text', receiverId);
+      await Message.save(
+        user.userId,
+        user.username,
+        message,
+        type || 'text',
+        receiverId,
+        data.fileUrl ? {
+          url: data.fileUrl,
+          name: data.fileName || message,
+          size: data.fileSize || null
+        } : null
+      );
     } catch (error) {
       console.error('保存私聊消息错误:', error);
     }
@@ -392,7 +476,10 @@ io.on('connection', async (socket) => {
           message: msg.message,
           timestamp: timestamp,
           type: msg.type || 'text',
-          isPrivate: true
+          isPrivate: true,
+          fileUrl: msg.file_url || null,
+          fileName: msg.file_name || null,
+          fileSize: msg.file_size || null
         };
       });
       socket.emit('private-message-history', formattedMessages);
@@ -427,7 +514,10 @@ io.on('connection', async (socket) => {
           message: msg.message,
           timestamp: timestamp,
           type: msg.type || 'text',
-          isPrivate: false
+          isPrivate: false,
+          fileUrl: msg.file_url || null,
+          fileName: msg.file_name || null,
+          fileSize: msg.file_size || null
         };
       });
       socket.emit('message-history', formattedMessages);

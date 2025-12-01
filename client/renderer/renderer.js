@@ -46,6 +46,9 @@ const backToGroupBtn = document.getElementById('backToGroupBtn');
 const emojiBtn = document.getElementById('emojiBtn');
 const emojiPicker = document.getElementById('emojiPicker');
 const emojiGrid = document.getElementById('emojiGrid');
+const attachBtn = document.getElementById('attachBtn');
+const fileInput = document.getElementById('fileInput');
+const dropOverlay = document.getElementById('dropOverlay');
 
 let typingTimeout = null;
 
@@ -75,6 +78,7 @@ window.addEventListener('DOMContentLoaded', () => {
     
     if (savedToken && savedServerUrl) {
         serverUrlInput.value = savedServerUrl;
+        serverBaseUrl = savedServerUrl;
         if (savedUsername) {
             loginUsernameInput.value = savedUsername;
         }
@@ -659,6 +663,7 @@ function disconnect() {
     privateChats.clear();
     chatTitle.textContent = 'BKFChat';
     backToGroupBtn.classList.add('hidden');
+    hideDropOverlay();
     
     // 可选：清除保存的 token
     // localStorage.removeItem('bkfchat_token');
@@ -684,6 +689,91 @@ function sendMessage() {
     socket.emit('typing', { isTyping: false });
 }
 
+async function handleFiles(fileList) {
+    if (!fileList || fileList.length === 0) return;
+    if (!isConnected) {
+        showError('请先连接服务器');
+        return;
+    }
+
+    for (const file of fileList) {
+        try {
+            await uploadAndSendFile(file);
+        } catch (error) {
+            console.error('文件上传失败:', error);
+            showError(error.message || '文件上传失败');
+        }
+    }
+
+    if (fileInput) {
+        fileInput.value = '';
+    }
+}
+
+function getBaseServerUrl() {
+    if (serverBaseUrl) return serverBaseUrl;
+    const inputUrl = normalizeUrl(serverUrlInput.value.trim());
+    if (inputUrl) {
+        serverBaseUrl = inputUrl;
+        return serverBaseUrl;
+    }
+    return null;
+}
+
+async function uploadAndSendFile(file) {
+    const baseUrl = getBaseServerUrl();
+    if (!baseUrl) {
+        throw new Error('请先输入服务器地址');
+    }
+    if (!currentToken) {
+        throw new Error('请先登录');
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${baseUrl}/api/upload`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${currentToken}`
+        },
+        body: formData
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+        throw new Error(result.error || '文件上传失败');
+    }
+
+    if (result.file) {
+        sendUploadedFile(result.file);
+    }
+}
+
+function sendUploadedFile(fileInfo) {
+    if (!socket || !isConnected) {
+        showError('未连接到服务器');
+        return;
+    }
+
+    const payload = {
+        message: fileInfo.name || '文件',
+        type: fileInfo.messageType || (fileInfo.mimeType && fileInfo.mimeType.startsWith('image/') ? 'image' : 'file'),
+        fileUrl: fileInfo.url,
+        fileName: fileInfo.name,
+        fileSize: fileInfo.size,
+        mimeType: fileInfo.mimeType
+    };
+
+    if (currentChatMode === 'private' && currentPrivateChatUserId) {
+        payload.receiverId = currentPrivateChatUserId;
+        socket.emit('private-message', payload);
+    } else {
+        socket.emit('message', payload);
+    }
+}
+
 function addMessage(data, isOwn = false, scroll = true) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
@@ -704,7 +794,37 @@ function addMessage(data, isOwn = false, scroll = true) {
 
     const content = document.createElement('div');
     content.className = 'message-content';
-    content.textContent = data.message;
+
+    if (data.fileUrl) {
+        if ((data.type === 'image' || (data.mimeType && data.mimeType.startsWith('image/')))) {
+            const image = document.createElement('img');
+            image.src = data.fileUrl;
+            image.alt = data.fileName || data.message || 'Image';
+            image.className = 'message-image';
+            image.addEventListener('click', () => {
+                window.open(data.fileUrl, '_blank');
+            });
+            content.appendChild(image);
+        } else {
+            const fileLink = document.createElement('a');
+            fileLink.href = data.fileUrl;
+            fileLink.target = '_blank';
+            fileLink.rel = 'noopener noreferrer';
+            const sizeText = data.fileSize ? ` (${formatFileSize(data.fileSize)})` : '';
+            fileLink.textContent = `${data.fileName || data.message || '文件'}${sizeText}`;
+            fileLink.className = 'file-link';
+            content.appendChild(fileLink);
+        }
+
+        if (data.message && data.message !== data.fileName) {
+            const caption = document.createElement('div');
+            caption.className = 'message-caption';
+            caption.textContent = data.message;
+            content.appendChild(caption);
+        }
+    } else {
+        content.textContent = data.message;
+    }
 
     messageDiv.appendChild(header);
     messageDiv.appendChild(content);
@@ -965,6 +1085,29 @@ function scrollToBottom() {
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
+function showDropOverlay() {
+    if (dropOverlay) {
+        dropOverlay.classList.remove('hidden');
+        dropOverlay.classList.add('active');
+    }
+}
+
+function hideDropOverlay() {
+    if (dropOverlay) {
+        dropOverlay.classList.remove('active');
+        dropOverlay.classList.add('hidden');
+    }
+}
+
+function formatFileSize(bytes) {
+    if (!bytes && bytes !== 0) return '';
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    if (bytes === 0) return '0 B';
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const value = bytes / Math.pow(1024, i);
+    return `${value.toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
+}
+
 // 表情包相关功能
 const emojiCategories = {
     smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓'],
@@ -1053,5 +1196,77 @@ if (emojiBtn) {
 document.addEventListener('click', (e) => {
     if (emojiPicker && !emojiPicker.contains(e.target) && e.target !== emojiBtn && !emojiBtn.contains(e.target)) {
         emojiPicker.classList.add('hidden');
+    }
+});
+
+// 附件按钮处理
+if (attachBtn && fileInput) {
+    attachBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        fileInput.value = '';
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            handleFiles(e.target.files);
+        }
+    });
+}
+
+// 拖拽上传
+let dragCounter = 0;
+['dragenter', 'dragover'].forEach(eventName => {
+    document.addEventListener(eventName, (e) => {
+        if (!isConnected || !chatScreen || chatScreen.classList.contains('hidden')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter++;
+        showDropOverlay();
+    });
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    document.addEventListener(eventName, (e) => {
+        if (!isConnected || !chatScreen || chatScreen.classList.contains('hidden')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter = Math.max(0, dragCounter - 1);
+        if (dragCounter === 0) {
+            hideDropOverlay();
+        }
+    });
+});
+
+document.addEventListener('drop', (e) => {
+    if (!isConnected || !chatScreen || chatScreen.classList.contains('hidden')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFiles(e.dataTransfer.files);
+    }
+    dragCounter = 0;
+    hideDropOverlay();
+}, false);
+
+// 粘贴文件/图片
+document.addEventListener('paste', (e) => {
+    if (!isConnected || !chatScreen || chatScreen.classList.contains('hidden')) return;
+    const clipboardData = e.clipboardData;
+    if (!clipboardData || !clipboardData.items) return;
+
+    const files = [];
+    for (const item of clipboardData.items) {
+        if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file) {
+                files.push(file);
+            }
+        }
+    }
+
+    if (files.length > 0) {
+        e.preventDefault();
+        handleFiles(files);
     }
 });

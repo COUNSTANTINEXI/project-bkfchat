@@ -479,6 +479,7 @@ body {
     flex-direction: column;
     background: #ffffff;
     min-width: 0;
+    position: relative;
 }
 
 .messages-container {
@@ -568,6 +569,30 @@ body {
     border-bottom-left-radius: 4px;
 }
 
+.message-content img {
+    max-width: 320px;
+    width: 100%;
+    border-radius: 12px;
+    margin-top: 8px;
+    cursor: pointer;
+}
+
+.message-content .file-link {
+    color: #4c51bf;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.message-content .file-link:hover {
+    text-decoration: underline;
+}
+
+.message-caption {
+    margin-top: 6px;
+    font-size: 13px;
+    color: #4a5568;
+}
+
 .system-message {
     text-align: center;
     color: #8b98a5;
@@ -638,6 +663,28 @@ body {
 .btn-emoji:hover {
     background: #f7f9fa;
     transform: scale(1.1);
+}
+
+.btn-attach {
+    background: transparent;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 8px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-attach:hover {
+    background: #f7f9fa;
+    transform: translateY(-1px);
+}
+
+.hidden-file-input {
+    display: none;
 }
 
 .emoji-picker {
@@ -716,8 +763,34 @@ body {
     transform: scale(1.2);
 }
 
-.input-area {
-    position: relative;
+.drop-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 80px;
+    background: rgba(102, 126, 234, 0.15);
+    border: 2px dashed #667eea;
+    color: #4c51bf;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 20;
+}
+
+.drop-overlay.active {
+    opacity: 1;
+    pointer-events: none;
+}
+
+.drop-overlay.hidden {
+    display: none;
 }
 
 .btn-icon {
