@@ -49,8 +49,20 @@ const emojiGrid = document.getElementById('emojiGrid');
 const attachBtn = document.getElementById('attachBtn');
 const fileInput = document.getElementById('fileInput');
 const dropOverlay = document.getElementById('dropOverlay');
+const messageContextMenu = document.getElementById('messageContextMenu');
+const recallMenuItem = document.getElementById('recallMenuItem');
+const forwardModal = document.getElementById('forwardModal');
+const forwardTargetsContainer = document.getElementById('forwardTargets');
+const forwardGroupBtn = document.getElementById('forwardGroupBtn');
+const forwardCloseBtn = document.getElementById('forwardCloseBtn');
 
 let typingTimeout = null;
+let contextMenuMessageId = null;
+let contextMenuIsOwn = false;
+let longPressTimer = null;
+const messageStore = new Map();
+let latestUsers = [];
+let forwardSourceMessage = null;
 
 // URL 规范化函数，确保 URL 格式正确
 function normalizeUrl(url) {
@@ -225,6 +237,82 @@ messageInput.addEventListener('keypress', (e) => {
         sendMessage();
     }
 });
+
+// 右键菜单（桌面端）
+messagesContainer.addEventListener('contextmenu', (e) => {
+    const messageEl = e.target.closest('.message');
+    if (!messageEl) return;
+    const messageId = messageEl.dataset.messageId;
+    if (!messageId) return;
+    e.preventDefault();
+    contextMenuMessageId = messageId;
+    contextMenuIsOwn = messageEl.classList.contains('own');
+    showMessageContextMenu(e.clientX, e.clientY);
+});
+
+// 长按菜单（移动端）
+messagesContainer.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const messageEl = e.target.closest('.message');
+    if (!messageEl) return;
+    const messageId = messageEl.dataset.messageId;
+    if (!messageId) return;
+
+    longPressTimer = setTimeout(() => {
+        contextMenuMessageId = messageId;
+        contextMenuIsOwn = messageEl.classList.contains('own');
+        const rect = messageEl.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        showMessageContextMenu(x, y);
+    }, 600);
+}, { passive: true });
+
+['touchend', 'touchcancel', 'scroll'].forEach(ev => {
+    document.addEventListener(ev, () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    }, { passive: true });
+});
+
+if (messageContextMenu) {
+    messageContextMenu.addEventListener('click', (e) => {
+        const item = e.target.closest('.message-context-item');
+        if (!item || item.classList.contains('hidden')) return;
+        const action = item.dataset.action;
+        if (!action || !contextMenuMessageId) return;
+        handleContextMenuAction(action, contextMenuMessageId);
+        hideMessageContextMenu();
+    });
+}
+
+document.addEventListener('click', (e) => {
+    if (messageContextMenu && !messageContextMenu.contains(e.target)) {
+        hideMessageContextMenu();
+    }
+});
+
+if (forwardGroupBtn) {
+    forwardGroupBtn.addEventListener('click', () => {
+        sendForwardToGroup();
+    });
+}
+
+if (forwardCloseBtn) {
+    forwardCloseBtn.addEventListener('click', () => {
+        closeForwardModal();
+    });
+}
+
+if (forwardModal) {
+    forwardModal.addEventListener('click', (e) => {
+        if (e.target === forwardModal) {
+            closeForwardModal();
+        }
+    });
+}
 
 // 输入检测
 messageInput.addEventListener('input', () => {
@@ -523,7 +611,7 @@ async function connectToServer() {
         // 接收消息（群聊）
         socket.on('message', (data) => {
             if (currentChatMode === 'group') {
-                addMessage(data, data.userId === currentUserId);
+                addMessage(data, isOwnMessage(data));
             }
         });
 
@@ -571,7 +659,7 @@ async function connectToServer() {
             if (currentChatMode === 'private') {
                 messagesContainer.innerHTML = '';
                 messages.forEach(msg => {
-                    addMessage(msg, msg.userId === currentUserId, false);
+                addMessage(msg, isOwnMessage(msg), false);
                 });
                 scrollToBottom();
             }
@@ -599,9 +687,19 @@ async function connectToServer() {
             if (currentChatMode === 'group') {
                 messagesContainer.innerHTML = '';
                 messages.forEach(msg => {
-                    addMessage(msg, msg.userId === currentUserId, false);
+                    addMessage(msg, isOwnMessage(msg), false);
                 });
                 scrollToBottom();
+            }
+        });
+
+        socket.on('message-recalled', (data) => {
+            handleMessageRecalled(data);
+        });
+
+        socket.on('recall-error', (payload) => {
+            if (payload && payload.message) {
+                showError(payload.message);
             }
         });
 
@@ -687,6 +785,18 @@ function sendMessage() {
     
     messageInput.value = '';
     socket.emit('typing', { isTyping: false });
+}
+
+function requestRecall(messageId) {
+    if (!socket || !isConnected || !messageId) return;
+    socket.emit('recall-message', { messageId });
+}
+
+function isOwnMessage(data) {
+    if (!data) return false;
+    const senderId = data.userId;
+    if (!senderId) return false;
+    return senderId.toString() === currentUserId;
 }
 
 async function handleFiles(fileList) {
@@ -777,6 +887,14 @@ function sendUploadedFile(fileInfo) {
 function addMessage(data, isOwn = false, scroll = true) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
+    if (data.id) {
+        messageDiv.dataset.messageId = data.id;
+        const stored = { ...data };
+        stored.userId = (data.userId !== undefined && data.userId !== null)
+            ? data.userId.toString()
+            : (isOwn ? currentUserId : data.userId);
+        messageStore.set(data.id.toString(), stored);
+    }
 
     const header = document.createElement('div');
     header.className = 'message-header';
@@ -845,8 +963,17 @@ function addSystemMessage(message) {
 }
 
 function updateUsersList(users) {
+    latestUsers = Array.isArray(users)
+        ? users.map(user => ({
+            ...user,
+            userId: user.userId !== undefined && user.userId !== null
+                ? user.userId.toString()
+                : ''
+        }))
+        : [];
+
     usersList.innerHTML = '';
-    users.forEach(user => {
+    latestUsers.forEach(user => {
         const userItem = document.createElement('div');
         const isCurrentUser = user.userId === currentUserId;
         userItem.className = `user-item ${isCurrentUser ? 'current-user' : 'clickable'}`;
@@ -1108,6 +1235,258 @@ function formatFileSize(bytes) {
     return `${value.toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
 }
 
+function handleMessageRecalled(data) {
+    if (!data || !data.id) return;
+    const selector = `[data-message-id="${data.id}"]`;
+    const messageEl = messagesContainer.querySelector(selector);
+    messageStore.delete(data.id.toString());
+    if (!messageEl) return;
+
+    messageEl.classList.add('message-recalled');
+    messageEl.innerHTML = '';
+    const placeholder = document.createElement('div');
+    placeholder.className = 'message-recalled-text';
+    placeholder.textContent = '消息已撤回';
+    messageEl.appendChild(placeholder);
+}
+
+function showMessageContextMenu(x, y) {
+    if (!messageContextMenu) return;
+    const rect = messageContextMenu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = x;
+    let top = y;
+
+    if (recallMenuItem) {
+        recallMenuItem.classList.toggle('hidden', !contextMenuIsOwn);
+    }
+    const shareItem = messageContextMenu.querySelector('[data-action="share"]');
+    if (shareItem) {
+        shareItem.classList.toggle('hidden', typeof navigator.share !== 'function');
+    }
+
+    if (left + rect.width > vw - 8) {
+        left = vw - rect.width - 8;
+    }
+    if (top + rect.height > vh - 8) {
+        top = vh - rect.height - 8;
+    }
+
+    messageContextMenu.style.left = `${left}px`;
+    messageContextMenu.style.top = `${top}px`;
+    messageContextMenu.classList.remove('hidden');
+}
+
+function hideMessageContextMenu() {
+    contextMenuMessageId = null;
+    contextMenuIsOwn = false;
+    if (messageContextMenu) {
+        messageContextMenu.classList.add('hidden');
+    }
+}
+
+function handleContextMenuAction(action, messageId) {
+    const message = messageStore.get(messageId);
+    if (!message) return;
+
+    switch (action) {
+        case 'copy':
+            copyMessageContent(message);
+            break;
+        case 'forward':
+            forwardMessage(message);
+            break;
+        case 'quote':
+            quoteMessage(message);
+            break;
+        case 'share':
+            shareMessage(message);
+            break;
+        case 'recall':
+            if (contextMenuIsOwn) {
+                requestRecall(messageId);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+function openForwardModal() {
+    if (!forwardModal || !forwardSourceMessage) return;
+    renderForwardTargets();
+    forwardModal.classList.remove('hidden');
+}
+
+function closeForwardModal() {
+    forwardSourceMessage = null;
+    if (forwardModal) {
+        forwardModal.classList.add('hidden');
+    }
+}
+
+function renderForwardTargets() {
+    if (!forwardTargetsContainer) return;
+    forwardTargetsContainer.innerHTML = '';
+
+    const targetsMap = new Map();
+    latestUsers.forEach(user => {
+        const id = user.userId ? user.userId.toString() : null;
+        if (!id || id === currentUserId) return;
+        targetsMap.set(id, { id, username: user.username || `用户${id}` });
+    });
+
+    privateChats.forEach((info, id) => {
+        if (id === currentUserId) return;
+        if (!targetsMap.has(id)) {
+            targetsMap.set(id, { id, username: info.username || `用户${id}` });
+        }
+    });
+
+    if (targetsMap.size === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'forward-target-empty';
+        empty.textContent = '暂无可用私聊联系人';
+        forwardTargetsContainer.appendChild(empty);
+        return;
+    }
+
+    targetsMap.forEach(target => {
+        const btn = document.createElement('button');
+        btn.className = 'forward-target-btn';
+        btn.textContent = target.username;
+        btn.addEventListener('click', () => {
+            sendForwardToUser(target.id);
+        });
+        forwardTargetsContainer.appendChild(btn);
+    });
+}
+
+function buildForwardPayload(message) {
+    const baseText = message.message || message.fileName || '';
+    const payload = {
+        message: `[转发 ${message.username || ''}]: ${baseText}`,
+        type: 'text'
+    };
+
+    if (message.fileUrl) {
+        payload.fileUrl = message.fileUrl;
+        payload.fileName = message.fileName || message.message || '文件';
+        payload.fileSize = message.fileSize || null;
+        payload.mimeType = message.mimeType || null;
+        if (message.type === 'image' || (message.mimeType && message.mimeType.startsWith('image/'))) {
+            payload.type = 'image';
+        } else {
+            payload.type = 'file';
+        }
+    } else if (message.type === 'image') {
+        payload.type = 'image';
+    }
+
+    return payload;
+}
+
+function sendForwardToGroup() {
+    if (!forwardSourceMessage || !isConnected) {
+        showError('未连接到服务器');
+        return;
+    }
+    const payload = buildForwardPayload(forwardSourceMessage);
+    socket.emit('message', payload);
+    closeForwardModal();
+}
+
+function sendForwardToUser(targetUserId) {
+    if (!forwardSourceMessage || !isConnected) {
+        showError('未连接到服务器');
+        return;
+    }
+    const payload = buildForwardPayload(forwardSourceMessage);
+    payload.receiverId = targetUserId;
+    socket.emit('private-message', payload);
+    closeForwardModal();
+}
+
+function copyMessageContent(message) {
+    let text = '';
+    if (message.message) {
+        text = message.message;
+    }
+    if (message.fileUrl) {
+        const fileText = message.fileUrl;
+        text = text ? `${text}\n${fileText}` : fileText;
+    }
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {
+            fallbackCopyText(text);
+        });
+    } else {
+        fallbackCopyText(text);
+    }
+}
+
+function fallbackCopyText(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+        document.execCommand('copy');
+    } catch (err) {
+        console.error('复制失败', err);
+    }
+    document.body.removeChild(textarea);
+}
+
+function forwardMessage(message) {
+    if (!isConnected) {
+        showError('未连接到服务器');
+        return;
+    }
+    forwardSourceMessage = message;
+    openForwardModal();
+}
+
+function shareMessage(message) {
+    if (typeof navigator.share !== 'function') {
+        showError('当前设备不支持分享');
+        return;
+    }
+
+    const shareData = {
+        title: `来自 ${message.username || 'BKFChat'} 的消息`,
+        text: message.message || message.fileName || ''
+    };
+
+    if (message.fileUrl) {
+        shareData.url = message.fileUrl;
+    }
+
+    if (!shareData.text && !shareData.url) {
+        shareData.text = 'BKFChat 消息';
+    }
+
+    navigator.share(shareData).catch((err) => {
+        if (err && err.name === 'AbortError') {
+            return;
+        }
+        console.error('分享失败:', err);
+        showError('分享失败，请重试');
+    });
+}
+
+function quoteMessage(message) {
+    const quoteText = message.message || message.fileName || '[引用]';
+    const currentText = messageInput.value;
+    messageInput.value = `> ${message.username}: ${quoteText}\n${currentText}`;
+    messageInput.focus();
+}
+
 // 表情包相关功能
 const emojiCategories = {
     smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓'],
@@ -1248,6 +1627,26 @@ document.addEventListener('drop', (e) => {
     dragCounter = 0;
     hideDropOverlay();
 }, false);
+
+document.addEventListener('paste', (e) => {
+    if (!isConnected || !chatScreen || chatScreen.classList.contains('hidden')) return;
+    if (!e.clipboardData || !e.clipboardData.items) return;
+
+    const files = [];
+    for (const item of e.clipboardData.items) {
+        if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file) {
+                files.push(file);
+            }
+        }
+    }
+
+    if (files.length > 0) {
+        e.preventDefault();
+        handleFiles(files);
+    }
+});
 
 // 粘贴文件/图片
 document.addEventListener('paste', (e) => {

@@ -104,6 +104,30 @@
                     <div id="dropOverlay" class="drop-overlay hidden">释放以上传文件</div>
                     <div id="messagesContainer" class="messages-container"></div>
                     <div id="typingIndicator" class="typing-indicator"></div>
+                    <div id="messageContextMenu" class="message-context-menu hidden">
+                        <button class="message-context-item" data-action="copy">复制</button>
+                        <button class="message-context-item" data-action="forward">转发</button>
+                        <button class="message-context-item" data-action="quote">引用</button>
+                        <button class="message-context-item" data-action="share">分享</button>
+                        <button id="recallMenuItem" class="message-context-item" data-action="recall">撤回</button>
+                    </div>
+                    <div id="forwardModal" class="forward-modal hidden">
+                        <div class="forward-dialog">
+                            <div class="forward-header">
+                                <span>选择转发对象</span>
+                                <button id="forwardCloseBtn" class="forward-close-btn">✕</button>
+                            </div>
+                            <div class="forward-section">
+                                <button id="forwardGroupBtn" class="forward-target-btn">
+                                    发送到群聊
+                                </button>
+                            </div>
+                            <div class="forward-section">
+                                <div class="forward-section-title">私聊联系人</div>
+                                <div id="forwardTargets" class="forward-target-list"></div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="input-area">
                         <button id="emojiBtn" class="btn-emoji" title="表情">🤓</button>
                         <button id="attachBtn" class="btn-attach" title="发送文件">📎</button>

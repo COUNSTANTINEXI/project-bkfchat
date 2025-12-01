@@ -258,6 +258,40 @@ const Message = {
         }
       );
     });
+  },
+
+  // 根据 ID 获取消息
+  findById: (id) => {
+    return new Promise((resolve, reject) => {
+      db.get(
+        'SELECT * FROM messages WHERE id = ?',
+        [id],
+        (err, row) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(row);
+          }
+        }
+      );
+    });
+  },
+
+  // 删除消息
+  deleteById: (id) => {
+    return new Promise((resolve, reject) => {
+      db.run(
+        'DELETE FROM messages WHERE id = ?',
+        [id],
+        function(err) {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(this.changes > 0);
+          }
+        }
+      );
+    });
   }
 };
 

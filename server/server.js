@@ -70,6 +70,16 @@ function getLocalTimestamp() {
   return getLocalTimestampFromDate(new Date());
 }
 
+function getSocketsByUserId(userId) {
+  const sockets = [];
+  onlineUsers.forEach((info, socketId) => {
+    if (info.userId === userId) {
+      sockets.push(socketId);
+    }
+  });
+  return sockets;
+}
+
 // 中间件：验证 JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -312,7 +322,7 @@ io.on('connection', async (socket) => {
       return {
         id: msg.id.toString(),
         username: msg.username,
-        userId: msg.user_id,
+        userId: msg.user_id?.toString(),
         message: msg.message,
         timestamp: timestamp, // 使用本地时间格式
         type: msg.type || 'text',
@@ -337,7 +347,7 @@ io.on('connection', async (socket) => {
     const messageData = {
       id: Date.now().toString(),
       username: user.username,
-      userId: user.userId,
+      userId: user.userId.toString(),
       message: data.message,
       timestamp: getLocalTimestamp(), // 使用本地时间格式，与数据库一致
       type: data.type || 'text',
@@ -350,7 +360,7 @@ io.on('connection', async (socket) => {
 
     // 保存到数据库（群聊消息，receiver_id 为 null）
     try {
-      await Message.save(
+      const saved = await Message.save(
         user.userId,
         user.username,
         data.message,
@@ -362,6 +372,7 @@ io.on('connection', async (socket) => {
           size: data.fileSize || null
         } : null
       );
+      messageData.id = saved.id.toString();
     } catch (error) {
       console.error('保存消息错误:', error);
     }
@@ -369,6 +380,70 @@ io.on('connection', async (socket) => {
     // 广播消息给所有用户
     io.emit('message', messageData);
     console.log(`群聊消息来自 ${user.username}: ${data.message}`);
+  });
+
+  // 撤回消息
+  socket.on('recall-message', async (data) => {
+    try {
+      const messageId = parseInt(data.messageId, 10);
+      if (!messageId || isNaN(messageId)) {
+        socket.emit('recall-error', { message: '无效的消息ID' });
+        return;
+      }
+
+      const messageRecord = await Message.findById(messageId);
+      if (!messageRecord) {
+        socket.emit('recall-error', { message: '消息不存在或已删除' });
+        return;
+      }
+
+      if (messageRecord.user_id !== socket.userId) {
+        socket.emit('recall-error', { message: '只能撤回自己发送的消息' });
+        return;
+      }
+
+      // 如果是带文件的消息，尝试删除服务器上的物理文件
+      if (messageRecord.file_url) {
+        try {
+          const uploadsPrefix = '/uploads/';
+          const idx = messageRecord.file_url.indexOf(uploadsPrefix);
+          if (idx !== -1) {
+            const fileName = messageRecord.file_url.slice(idx + uploadsPrefix.length);
+            const filePath = path.join(UPLOAD_DIR, fileName);
+            fs.unlink(filePath, (err) => {
+              if (err && err.code !== 'ENOENT') {
+                console.error('删除文件失败:', err);
+              }
+            });
+          }
+        } catch (fileErr) {
+          console.error('处理撤回文件路径失败:', fileErr);
+        }
+      }
+
+      // 删除数据库记录
+      await Message.deleteById(messageId);
+
+      const payload = {
+        id: messageId.toString(),
+        isPrivate: !!messageRecord.receiver_id
+      };
+
+      if (messageRecord.receiver_id) {
+        // 私聊：通知双方
+        socket.emit('message-recalled', payload);
+        const receiverSockets = getSocketsByUserId(messageRecord.receiver_id);
+        receiverSockets.forEach(socketId => {
+          io.to(socketId).emit('message-recalled', payload);
+        });
+      } else {
+        // 群聊：广播
+        io.emit('message-recalled', payload);
+      }
+    } catch (error) {
+      console.error('撤回消息错误:', error);
+      socket.emit('recall-error', { message: '撤回失败，服务器错误' });
+    }
   });
 
   // 接收私聊消息
@@ -393,7 +468,7 @@ io.on('connection', async (socket) => {
     const messageData = {
       id: Date.now().toString(),
       username: user.username,
-      userId: user.userId,
+      userId: user.userId.toString(),
       receiverId: parseInt(receiverId),
       receiverUsername: receiver.username,
       message: message,
@@ -408,7 +483,7 @@ io.on('connection', async (socket) => {
 
     // 保存到数据库
     try {
-      await Message.save(
+      const saved = await Message.save(
         user.userId,
         user.username,
         message,
@@ -420,6 +495,8 @@ io.on('connection', async (socket) => {
           size: data.fileSize || null
         } : null
       );
+      messageData.id = saved.id.toString();
+      messageData.receiverId = parseInt(receiverId);
     } catch (error) {
       console.error('保存私聊消息错误:', error);
     }
@@ -471,7 +548,7 @@ io.on('connection', async (socket) => {
         return {
           id: msg.id.toString(),
           username: msg.username,
-          userId: msg.user_id,
+          userId: msg.user_id?.toString(),
           receiverId: msg.receiver_id,
           message: msg.message,
           timestamp: timestamp,
@@ -510,7 +587,7 @@ io.on('connection', async (socket) => {
         return {
           id: msg.id.toString(),
           username: msg.username,
-          userId: msg.user_id,
+          userId: msg.user_id?.toString(),
           message: msg.message,
           timestamp: timestamp,
           type: msg.type || 'text',
