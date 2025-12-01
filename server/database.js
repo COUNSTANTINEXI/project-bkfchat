@@ -47,12 +47,21 @@ function initDatabase() {
         username TEXT NOT NULL,
         message TEXT NOT NULL,
         type TEXT DEFAULT 'text',
+        receiver_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (receiver_id) REFERENCES users(id)
       )
     `, (err) => {
       if (err) {
         console.error('创建消息表错误:', err.message);
+      } else {
+        // 添加 receiver_id 列（如果不存在）
+        db.run(`
+          ALTER TABLE messages ADD COLUMN receiver_id INTEGER
+        `, (err) => {
+          // 忽略错误（列可能已存在）
+        });
       }
     });
   });
@@ -148,12 +157,12 @@ const User = {
 
 // 消息相关操作
 const Message = {
-  // 保存消息
-  save: (userId, username, message, type = 'text') => {
+  // 保存消息（receiverId 为 null 表示群聊消息）
+  save: (userId, username, message, type = 'text', receiverId = null) => {
     return new Promise((resolve, reject) => {
       db.run(
-        'INSERT INTO messages (user_id, username, message, type) VALUES (?, ?, ?, ?)',
-        [userId, username, message, type],
+        'INSERT INTO messages (user_id, username, message, type, receiver_id) VALUES (?, ?, ?, ?, ?)',
+        [userId, username, message, type, receiverId],
         function(err) {
           if (err) {
             reject(err);
@@ -165,17 +174,68 @@ const Message = {
     });
   },
 
-  // 获取最近的消息
+  // 获取最近的消息（群聊消息，receiver_id 为 NULL）
   getRecent: (limit = 50) => {
     return new Promise((resolve, reject) => {
       db.all(
-        'SELECT * FROM messages ORDER BY created_at DESC LIMIT ?',
+        'SELECT * FROM messages WHERE receiver_id IS NULL ORDER BY created_at DESC LIMIT ?',
         [limit],
         (err, rows) => {
           if (err) {
             reject(err);
           } else {
             resolve(rows.reverse()); // 反转顺序，最新的在最后
+          }
+        }
+      );
+    });
+  },
+
+  // 获取两个用户之间的私聊消息
+  getPrivateMessages: (userId1, userId2, limit = 100) => {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT * FROM messages 
+         WHERE receiver_id IS NOT NULL 
+         AND ((user_id = ? AND receiver_id = ?) OR (user_id = ? AND receiver_id = ?))
+         ORDER BY created_at DESC LIMIT ?`,
+        [userId1, userId2, userId2, userId1, limit],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(rows.reverse()); // 反转顺序，最新的在最后
+          }
+        }
+      );
+    });
+  },
+
+  // 获取用户的所有私聊会话列表（返回有消息记录的用户ID和用户名）
+  getPrivateChatsList: (userId) => {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT DISTINCT 
+          CASE 
+            WHEN user_id = ? THEN receiver_id 
+            ELSE user_id 
+          END as other_user_id,
+          CASE 
+            WHEN user_id = ? THEN (SELECT username FROM users WHERE id = receiver_id)
+            ELSE username 
+          END as other_username,
+          MAX(created_at) as last_message_time
+         FROM messages 
+         WHERE receiver_id IS NOT NULL 
+         AND (user_id = ? OR receiver_id = ?)
+         GROUP BY other_user_id
+         ORDER BY last_message_time DESC`,
+        [userId, userId, userId, userId],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(rows);
           }
         }
       );

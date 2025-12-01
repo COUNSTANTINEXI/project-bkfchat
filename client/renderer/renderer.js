@@ -4,6 +4,9 @@ let currentUserId = '';
 let currentToken = '';
 let serverBaseUrl = '';
 let isConnected = false;
+let currentChatMode = 'group'; // 'group' 或 'private'
+let currentPrivateChatUserId = null; // 当前私聊的用户ID
+let privateChats = new Map(); // 存储私聊会话 { userId: { username, unreadCount } }
 
 // DOM 元素
 const authScreen = document.getElementById('authScreen');
@@ -35,6 +38,11 @@ const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebarToggle');
 const sidebarClose = document.getElementById('sidebarClose');
 const sidebarOverlay = document.getElementById('sidebarOverlay');
+const usersTab = document.getElementById('usersTab');
+const chatsTab = document.getElementById('chatsTab');
+const chatsList = document.getElementById('chatsList');
+const chatTitle = document.getElementById('chatTitle');
+const backToGroupBtn = document.getElementById('backToGroupBtn');
 
 let typingTimeout = null;
 
@@ -130,6 +138,32 @@ if (sidebarClose) {
 if (sidebarOverlay) {
     sidebarOverlay.addEventListener('click', () => {
         closeSidebar();
+    });
+}
+
+// 侧边栏标签切换
+if (usersTab) {
+    usersTab.addEventListener('click', () => {
+        usersTab.classList.add('active');
+        chatsTab.classList.remove('active');
+        usersList.classList.remove('hidden');
+        chatsList.classList.add('hidden');
+    });
+}
+
+if (chatsTab) {
+    chatsTab.addEventListener('click', () => {
+        chatsTab.classList.add('active');
+        usersTab.classList.remove('active');
+        chatsList.classList.remove('hidden');
+        usersList.classList.add('hidden');
+    });
+}
+
+// 返回群聊
+if (backToGroupBtn) {
+    backToGroupBtn.addEventListener('click', () => {
+        switchToGroupChat();
     });
 }
 
@@ -437,6 +471,17 @@ async function connectToServer() {
             chatScreen.classList.remove('hidden');
             messageInput.focus();
             
+            // 确保默认显示在线用户列表
+            if (chatsTab && usersTab && chatsList && usersList) {
+                usersTab.classList.add('active');
+                chatsTab.classList.remove('active');
+                usersList.classList.remove('hidden');
+                chatsList.classList.add('hidden');
+            }
+            
+            // 获取私聊会话列表
+            socket.emit('get-private-chats-list', {});
+            
             // 重置按钮状态
             loginBtn.disabled = false;
             loginBtn.textContent = '登录';
@@ -468,18 +513,89 @@ async function connectToServer() {
             socket = null;
         });
 
-        // 接收消息
+        // 接收消息（群聊）
         socket.on('message', (data) => {
-            addMessage(data, data.userId === currentUserId);
+            if (currentChatMode === 'group') {
+                addMessage(data, data.userId === currentUserId);
+            }
         });
 
-        // 接收消息历史
-        socket.on('message-history', (messages) => {
-            messagesContainer.innerHTML = '';
-            messages.forEach(msg => {
-                addMessage(msg, msg.userId === currentUserId, false);
+        // 接收私聊消息
+        socket.on('private-message', (data) => {
+            // 判断消息的发送者和接收者（确保类型一致）
+            const isFromMe = parseInt(data.userId) === parseInt(currentUserId);
+            const otherUserId = isFromMe ? parseInt(data.receiverId) : parseInt(data.userId);
+            const currentPrivateId = currentPrivateChatUserId ? parseInt(currentPrivateChatUserId) : null;
+            
+            // 检查是否是当前私聊会话的消息
+            const isCurrentChat = currentChatMode === 'private' && 
+                currentPrivateId !== null &&
+                currentPrivateId === otherUserId;
+            
+            if (isCurrentChat) {
+                // 显示在当前聊天窗口
+                addMessage(data, isFromMe);
+            } else {
+                // 更新未读消息数（只统计别人发来的消息）
+                if (!isFromMe) {
+                    if (privateChats.has(otherUserId)) {
+                        const chatInfo = privateChats.get(otherUserId);
+                        chatInfo.unreadCount++;
+                        updateChatsList();
+                    } else {
+                        // 新私聊会话
+                        const otherUsername = data.username;
+                        privateChats.set(otherUserId, { username: otherUsername, unreadCount: 1 });
+                        updateChatsList();
+                    }
+                } else {
+                    // 如果是我发送的消息，但不在当前会话，也要添加到私聊列表（用于显示历史）
+                    if (!privateChats.has(otherUserId)) {
+                        const otherUsername = data.receiverUsername || '用户';
+                        privateChats.set(otherUserId, { username: otherUsername, unreadCount: 0 });
+                        updateChatsList();
+                    }
+                }
+            }
+        });
+
+        // 接收私聊消息历史
+        socket.on('private-message-history', (messages) => {
+            if (currentChatMode === 'private') {
+                messagesContainer.innerHTML = '';
+                messages.forEach(msg => {
+                    addMessage(msg, msg.userId === currentUserId, false);
+                });
+                scrollToBottom();
+            }
+        });
+
+        // 接收私聊会话列表
+        socket.on('private-chats-list', (chats) => {
+            // 清空现有私聊列表
+            privateChats.clear();
+            
+            // 添加有消息记录的私聊会话
+            chats.forEach(chat => {
+                privateChats.set(chat.userId, { 
+                    username: chat.username, 
+                    unreadCount: 0 
+                });
             });
-            scrollToBottom();
+            
+            updateChatsList();
+        });
+
+        // 接收消息历史（群聊）
+        socket.on('message-history', (messages) => {
+            // 只在群聊模式下显示
+            if (currentChatMode === 'group') {
+                messagesContainer.innerHTML = '';
+                messages.forEach(msg => {
+                    addMessage(msg, msg.userId === currentUserId, false);
+                });
+                scrollToBottom();
+            }
         });
 
         // 用户加入/离开
@@ -530,8 +646,16 @@ function disconnect() {
     authScreen.classList.remove('hidden');
     messagesContainer.innerHTML = '';
     usersList.innerHTML = '';
+    chatsList.innerHTML = '';
     messageInput.value = '';
     closeSidebar(); // 关闭侧边栏
+    
+    // 重置私聊状态
+    currentChatMode = 'group';
+    currentPrivateChatUserId = null;
+    privateChats.clear();
+    chatTitle.textContent = 'BKFChat';
+    backToGroupBtn.classList.add('hidden');
     
     // 可选：清除保存的 token
     // localStorage.removeItem('bkfchat_token');
@@ -541,7 +665,18 @@ function sendMessage() {
     const message = messageInput.value.trim();
     if (!message || !isConnected) return;
 
-    socket.emit('message', { message, type: 'text' });
+    if (currentChatMode === 'private' && currentPrivateChatUserId) {
+        // 发送私聊消息
+        socket.emit('private-message', {
+            receiverId: currentPrivateChatUserId,
+            message: message,
+            type: 'text'
+        });
+    } else {
+        // 发送群聊消息
+        socket.emit('message', { message, type: 'text' });
+    }
+    
     messageInput.value = '';
     socket.emit('typing', { isTyping: false });
 }
@@ -590,9 +725,109 @@ function updateUsersList(users) {
     usersList.innerHTML = '';
     users.forEach(user => {
         const userItem = document.createElement('div');
-        userItem.className = `user-item ${user.userId === currentUserId ? 'current-user' : ''}`;
+        const isCurrentUser = user.userId === currentUserId;
+        userItem.className = `user-item ${isCurrentUser ? 'current-user' : 'clickable'}`;
         userItem.textContent = user.username;
+        
+        if (!isCurrentUser) {
+            userItem.addEventListener('click', () => {
+                startPrivateChat(user.userId, user.username);
+                closeSidebar();
+            });
+        }
+        
         usersList.appendChild(userItem);
+    });
+}
+
+// 开始私聊
+function startPrivateChat(userId, username) {
+    currentChatMode = 'private';
+    currentPrivateChatUserId = userId;
+    
+    // 更新标题
+    chatTitle.textContent = `与 ${username} 的私聊`;
+    backToGroupBtn.classList.remove('hidden');
+    
+    // 只有在私聊列表中已存在时才清除未读数
+    // 不要在这里添加新用户到私聊列表，只有有实际消息记录的用户才会在列表中
+    if (privateChats.has(userId)) {
+        const chatInfo = privateChats.get(userId);
+        chatInfo.unreadCount = 0;
+        updateChatsList();
+    }
+    
+    // 清空消息容器
+    messagesContainer.innerHTML = '';
+    
+    // 请求私聊消息历史
+    if (socket && isConnected) {
+        socket.emit('get-private-messages', { otherUserId: userId });
+    }
+    
+    // 聚焦输入框
+    messageInput.focus();
+}
+
+// 切换到群聊
+function switchToGroupChat() {
+    currentChatMode = 'group';
+    currentPrivateChatUserId = null;
+    
+    // 更新标题
+    chatTitle.textContent = 'BKFChat';
+    backToGroupBtn.classList.add('hidden');
+    
+    // 清空消息容器
+    messagesContainer.innerHTML = '';
+    
+    // 重新加载群聊消息历史
+    if (socket && isConnected) {
+        socket.emit('get-group-messages', {});
+    }
+}
+
+// 更新私聊列表
+function updateChatsList() {
+    chatsList.innerHTML = '';
+    
+    if (privateChats.size === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'empty-chats';
+        emptyMsg.textContent = '暂无私聊会话';
+        emptyMsg.style.textAlign = 'center';
+        emptyMsg.style.color = '#8b98a5';
+        emptyMsg.style.padding = '20px';
+        emptyMsg.style.fontSize = '13px';
+        emptyMsg.style.fontStyle = 'italic';
+        chatsList.appendChild(emptyMsg);
+        return;
+    }
+    
+    privateChats.forEach((chatInfo, userId) => {
+        const chatItem = document.createElement('div');
+        const isActive = currentChatMode === 'private' && currentPrivateChatUserId === userId;
+        chatItem.className = `chat-item ${isActive ? 'active' : ''}`;
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'chat-item-name';
+        nameSpan.textContent = chatInfo.username;
+        
+        chatItem.appendChild(nameSpan);
+        
+        if (chatInfo.unreadCount > 0) {
+            const badge = document.createElement('span');
+            badge.className = 'chat-item-badge';
+            badge.textContent = chatInfo.unreadCount;
+            chatItem.appendChild(badge);
+        }
+        
+        chatItem.addEventListener('click', () => {
+            startPrivateChat(userId, chatInfo.username);
+            closeSidebar();
+        });
+        
+        chatsList.appendChild(chatItem);
     });
 }
 

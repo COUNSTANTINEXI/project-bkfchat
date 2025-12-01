@@ -70,7 +70,8 @@
         <div id="chatScreen" class="chat-screen hidden">
             <div class="chat-header">
                 <div class="header-info">
-                    <h2>BKFChat</h2>
+                    <button id="backToGroupBtn" class="btn-back hidden" title="返回群聊">←</button>
+                    <h2 id="chatTitle">BKFChat</h2>
                     <div class="status-group">
                         <span id="statusIndicator" class="status-indicator">●</span>
                         <span id="statusText">已连接</span>
@@ -88,11 +89,14 @@
             <div class="chat-body">
                 <div class="sidebar" id="sidebar">
                     <div class="sidebar-header">
-                        <h3>在线用户</h3>
-                        <span class="user-count-badge" id="userCountBadge">0</span>
+                        <div class="sidebar-tabs">
+                            <button class="sidebar-tab active" id="usersTab">在线用户</button>
+                            <button class="sidebar-tab" id="chatsTab">私聊</button>
+                        </div>
                         <button class="sidebar-close" id="sidebarClose">✕</button>
                     </div>
                     <div id="usersList" class="users-list"></div>
+                    <div id="chatsList" class="chats-list hidden"></div>
                 </div>
                 <div class="sidebar-overlay" id="sidebarOverlay"></div>
 

@@ -275,7 +275,7 @@ io.on('connection', async (socket) => {
 
   console.log(`${username} (${socket.id}) 加入聊天室`);
 
-  // 接收消息
+  // 接收消息（群聊）
   socket.on('message', async (data) => {
     const user = onlineUsers.get(socket.id);
     if (!user) return;
@@ -286,19 +286,174 @@ io.on('connection', async (socket) => {
       userId: user.userId,
       message: data.message,
       timestamp: getLocalTimestamp(), // 使用本地时间格式，与数据库一致
-      type: data.type || 'text'
+      type: data.type || 'text',
+      isPrivate: false
     };
 
-    // 保存到数据库
+    // 保存到数据库（群聊消息，receiver_id 为 null）
     try {
-      await Message.save(user.userId, user.username, data.message, data.type || 'text');
+      await Message.save(user.userId, user.username, data.message, data.type || 'text', null);
     } catch (error) {
       console.error('保存消息错误:', error);
     }
 
     // 广播消息给所有用户
     io.emit('message', messageData);
-    console.log(`消息来自 ${user.username}: ${data.message}`);
+    console.log(`群聊消息来自 ${user.username}: ${data.message}`);
+  });
+
+  // 接收私聊消息
+  socket.on('private-message', async (data) => {
+    const user = onlineUsers.get(socket.id);
+    if (!user) return;
+
+    const { receiverId, message, type } = data;
+
+    if (!receiverId) {
+      socket.emit('error', { message: '接收者ID不能为空' });
+      return;
+    }
+
+    // 验证接收者是否存在
+    const receiver = await User.findById(receiverId);
+    if (!receiver) {
+      socket.emit('error', { message: '接收者不存在' });
+      return;
+    }
+
+    const messageData = {
+      id: Date.now().toString(),
+      username: user.username,
+      userId: user.userId,
+      receiverId: parseInt(receiverId),
+      receiverUsername: receiver.username,
+      message: message,
+      timestamp: getLocalTimestamp(),
+      type: type || 'text',
+      isPrivate: true
+    };
+
+    // 保存到数据库
+    try {
+      await Message.save(user.userId, user.username, message, type || 'text', receiverId);
+    } catch (error) {
+      console.error('保存私聊消息错误:', error);
+    }
+
+    // 查找接收者的 socket
+    let receiverSocket = null;
+    for (const [socketId, userInfo] of onlineUsers.entries()) {
+      if (userInfo.userId === parseInt(receiverId)) {
+        receiverSocket = socketId;
+        break;
+      }
+    }
+
+    // 发送给接收者
+    if (receiverSocket) {
+      io.to(receiverSocket).emit('private-message', messageData);
+    }
+
+    // 也发送给发送者（用于确认）
+    socket.emit('private-message', messageData);
+
+    console.log(`私聊消息: ${user.username} -> ${receiver.username}: ${message}`);
+  });
+
+  // 获取私聊消息历史
+  socket.on('get-private-messages', async (data) => {
+    const user = onlineUsers.get(socket.id);
+    if (!user) return;
+
+    const { otherUserId } = data;
+    if (!otherUserId) {
+      socket.emit('error', { message: '用户ID不能为空' });
+      return;
+    }
+
+    try {
+      const messages = await Message.getPrivateMessages(user.userId, parseInt(otherUserId), 100);
+      const formattedMessages = messages.map(msg => {
+        let timestamp = msg.created_at;
+        if (!timestamp) {
+          timestamp = getLocalTimestamp();
+        } else {
+          if (typeof timestamp === 'string' && timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+            const utcDate = new Date(timestamp.replace(' ', 'T') + 'Z');
+            timestamp = getLocalTimestampFromDate(utcDate);
+          }
+        }
+        
+        return {
+          id: msg.id.toString(),
+          username: msg.username,
+          userId: msg.user_id,
+          receiverId: msg.receiver_id,
+          message: msg.message,
+          timestamp: timestamp,
+          type: msg.type || 'text',
+          isPrivate: true
+        };
+      });
+      socket.emit('private-message-history', formattedMessages);
+    } catch (error) {
+      console.error('获取私聊消息历史错误:', error);
+      socket.emit('private-message-history', []);
+    }
+  });
+
+  // 获取群聊消息历史
+  socket.on('get-group-messages', async (data) => {
+    const user = onlineUsers.get(socket.id);
+    if (!user) return;
+
+    try {
+      const messages = await Message.getRecent(50);
+      const formattedMessages = messages.map(msg => {
+        let timestamp = msg.created_at;
+        if (!timestamp) {
+          timestamp = getLocalTimestamp();
+        } else {
+          if (typeof timestamp === 'string' && timestamp.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
+            const utcDate = new Date(timestamp.replace(' ', 'T') + 'Z');
+            timestamp = getLocalTimestampFromDate(utcDate);
+          }
+        }
+        
+        return {
+          id: msg.id.toString(),
+          username: msg.username,
+          userId: msg.user_id,
+          message: msg.message,
+          timestamp: timestamp,
+          type: msg.type || 'text',
+          isPrivate: false
+        };
+      });
+      socket.emit('message-history', formattedMessages);
+    } catch (error) {
+      console.error('获取群聊消息历史错误:', error);
+      socket.emit('message-history', []);
+    }
+  });
+
+  // 获取用户的私聊会话列表
+  socket.on('get-private-chats-list', async (data) => {
+    const user = onlineUsers.get(socket.id);
+    if (!user) return;
+
+    try {
+      const chats = await Message.getPrivateChatsList(user.userId);
+      const formattedChats = chats.map(chat => ({
+        userId: chat.other_user_id,
+        username: chat.other_username,
+        lastMessageTime: chat.last_message_time
+      }));
+      socket.emit('private-chats-list', formattedChats);
+    } catch (error) {
+      console.error('获取私聊会话列表错误:', error);
+      socket.emit('private-chats-list', []);
+    }
   });
 
   // 用户正在输入
