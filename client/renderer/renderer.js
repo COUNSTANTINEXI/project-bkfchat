@@ -55,6 +55,7 @@ const forwardModal = document.getElementById('forwardModal');
 const forwardTargetsContainer = document.getElementById('forwardTargets');
 const forwardGroupBtn = document.getElementById('forwardGroupBtn');
 const forwardCloseBtn = document.getElementById('forwardCloseBtn');
+const notificationIconPath = '../assets/icon.png';
 
 let typingTimeout = null;
 let contextMenuMessageId = null;
@@ -63,6 +64,8 @@ let longPressTimer = null;
 const messageStore = new Map();
 let latestUsers = [];
 let forwardSourceMessage = null;
+let notificationsEnabled = false;
+let notificationPermissionRequested = false;
 
 // URL 规范化函数，确保 URL 格式正确
 function normalizeUrl(url) {
@@ -87,6 +90,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedToken = localStorage.getItem('bkfchat_token');
     const savedServerUrl = localStorage.getItem('bkfchat_server');
     const savedUsername = localStorage.getItem('bkfchat_username');
+    initNotifications();
     
     if (savedToken && savedServerUrl) {
         serverUrlInput.value = savedServerUrl;
@@ -313,6 +317,12 @@ if (forwardModal) {
         }
     });
 }
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        initNotifications();
+    }
+});
 
 // 输入检测
 messageInput.addEventListener('input', () => {
@@ -613,6 +623,7 @@ async function connectToServer() {
             if (currentChatMode === 'group') {
                 addMessage(data, isOwnMessage(data));
             }
+            maybeShowNotification(data);
         });
 
         // 接收私聊消息
@@ -652,6 +663,8 @@ async function connectToServer() {
                     }
                 }
             }
+
+            maybeShowNotification(data);
         });
 
         // 接收私聊消息历史
@@ -1283,6 +1296,56 @@ function hideMessageContextMenu() {
     contextMenuIsOwn = false;
     if (messageContextMenu) {
         messageContextMenu.classList.add('hidden');
+    }
+}
+
+function initNotifications() {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+        notificationsEnabled = false;
+        return;
+    }
+
+    if (Notification.permission === 'granted') {
+        notificationsEnabled = true;
+    } else if (Notification.permission === 'default' && !notificationPermissionRequested) {
+        notificationPermissionRequested = true;
+        Notification.requestPermission().then((status) => {
+            notificationsEnabled = status === 'granted';
+        });
+    }
+}
+
+function maybeShowNotification(message) {
+    if (!notificationsEnabled) return;
+    if (!message || isOwnMessage(message)) return;
+    if (document.hasFocus()) return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+    const title = message.isPrivate
+        ? `私聊 - ${message.username || '好友'}`
+        : `群聊 - ${message.username || '成员'}`;
+
+    let body = '';
+    if (message.fileUrl) {
+        body = message.type === 'image'
+            ? '[图片]'
+            : `[文件] ${message.fileName || ''}`;
+    } else {
+        body = message.message || '发送了新消息';
+    }
+
+    try {
+        const notification = new Notification(title, {
+            body: body,
+            icon: notificationIconPath,
+            silent: false
+        });
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+    } catch (error) {
+        console.error('通知失败:', error);
     }
 }
 
