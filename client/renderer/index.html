@@ -104,11 +104,25 @@
                     <div id="messagesContainer" class="messages-container"></div>
                     <div id="typingIndicator" class="typing-indicator"></div>
                     <div class="input-area">
+                        <button id="emojiBtn" class="btn-emoji" title="表情">🤓</button>
                         <input type="text" id="messageInput" placeholder="输入消息..." maxlength="500">
                         <button id="sendBtn" class="btn btn-primary">
                             <span class="btn-text">发送</span>
                             <span class="btn-icon">➤</span>
                         </button>
+                    </div>
+                    <div id="emojiPicker" class="emoji-picker hidden">
+                        <div class="emoji-categories">
+                            <button class="emoji-category active" data-category="smileys">😊</button>
+                            <button class="emoji-category" data-category="gestures">👋</button>
+                            <button class="emoji-category" data-category="people">👤</button>
+                            <button class="emoji-category" data-category="animals">🐶</button>
+                            <button class="emoji-category" data-category="food">🍕</button>
+                            <button class="emoji-category" data-category="travel">🚗</button>
+                            <button class="emoji-category" data-category="objects">💡</button>
+                            <button class="emoji-category" data-category="symbols">❤️</button>
+                        </div>
+                        <div class="emoji-grid" id="emojiGrid"></div>
                     </div>
                 </div>
             </div>
