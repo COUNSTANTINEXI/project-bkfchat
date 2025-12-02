@@ -55,7 +55,20 @@ const forwardModal = document.getElementById('forwardModal');
 const forwardTargetsContainer = document.getElementById('forwardTargets');
 const forwardGroupBtn = document.getElementById('forwardGroupBtn');
 const forwardCloseBtn = document.getElementById('forwardCloseBtn');
-const notificationIconPath = '../assets/icon.png';
+// 通知图标路径 - 动态获取，兼容不同环境
+function getNotificationIconPath() {
+    // 尝试多种路径
+    const baseUrl = window.location.origin;
+    const paths = [
+        baseUrl + '/assets/icon.png',
+        baseUrl + '/renderer/assets/icon.png',
+        './assets/icon.png',
+        '../assets/icon.png',
+        'assets/icon.png'
+    ];
+    // 返回第一个路径（实际使用时如果加载失败会fallback）
+    return paths[0];
+}
 
 let typingTimeout = null;
 let contextMenuMessageId = null;
@@ -66,6 +79,43 @@ let latestUsers = [];
 let forwardSourceMessage = null;
 let notificationsEnabled = false;
 let notificationPermissionRequested = false;
+
+function resolveFileUrl(fileUrl) {
+    if (!fileUrl) return '';
+
+    // data URI 或 base64 直接返回
+    if (fileUrl.startsWith('data:')) {
+        return fileUrl;
+    }
+
+    try {
+        const base = serverBaseUrl || normalizeUrl(serverUrlInput.value.trim()) || window.location.origin;
+        const baseUrl = new URL(base);
+
+        let targetUrl;
+        if (/^https?:\/\//i.test(fileUrl)) {
+            targetUrl = new URL(fileUrl);
+        } else {
+            targetUrl = new URL(fileUrl, baseUrl);
+        }
+
+        // 始终使用当前连接的服务器主机/端口，保证移动端可访问
+        const finalUrl = new URL(baseUrl.toString());
+        finalUrl.pathname = targetUrl.pathname;
+        finalUrl.search = targetUrl.search;
+        finalUrl.hash = targetUrl.hash;
+
+        return finalUrl.toString();
+    } catch (error) {
+        console.warn('无法解析文件URL，使用回退方案:', fileUrl, error);
+        if (serverBaseUrl) {
+            const base = serverBaseUrl.replace(/\/+$/, '');
+            const path = fileUrl.replace(/^\/+/, '');
+            return `${base}/${path}`;
+        }
+        return fileUrl;
+    }
+}
 
 // URL 规范化函数，确保 URL 格式正确
 function normalizeUrl(url) {
@@ -927,18 +977,50 @@ function addMessage(data, isOwn = false, scroll = true) {
     content.className = 'message-content';
 
     if (data.fileUrl) {
+        const resolvedFileUrl = resolveFileUrl(data.fileUrl);
         if ((data.type === 'image' || (data.mimeType && data.mimeType.startsWith('image/')))) {
+            // 创建图片容器
+            const imageContainer = document.createElement('div');
+            imageContainer.style.position = 'relative';
+            imageContainer.style.display = 'inline-block';
+            imageContainer.style.maxWidth = '100%';
+            
             const image = document.createElement('img');
-            image.src = data.fileUrl;
+            image.src = resolvedFileUrl;
             image.alt = data.fileName || data.message || 'Image';
             image.className = 'message-image';
+            image.style.display = 'block';
+            image.style.maxWidth = '100%';
+            image.style.height = 'auto';
+            image.style.borderRadius = '12px';
+            image.style.cursor = 'pointer';
+            
+            // 图片加载错误处理
+            image.onerror = function() {
+                console.error('图片加载失败:', resolvedFileUrl);
+                // 如果图片加载失败，显示文件链接
+                imageContainer.innerHTML = '';
+                const fileLink = document.createElement('a');
+                fileLink.href = resolvedFileUrl;
+                fileLink.target = '_blank';
+                fileLink.rel = 'noopener noreferrer';
+                fileLink.textContent = `[图片加载失败，点击查看] ${data.fileName || data.message || '图片'}`;
+                fileLink.className = 'file-link';
+                imageContainer.appendChild(fileLink);
+            };
+            
+            // 图片加载成功
+            image.onload = function() {};
+            // 点击预览（在新窗口打开）
             image.addEventListener('click', () => {
-                window.open(data.fileUrl, '_blank');
+                window.open(resolvedFileUrl, '_blank');
             });
-            content.appendChild(image);
+            
+            imageContainer.appendChild(image);
+            content.appendChild(imageContainer);
         } else {
             const fileLink = document.createElement('a');
-            fileLink.href = data.fileUrl;
+            fileLink.href = resolvedFileUrl;
             fileLink.target = '_blank';
             fileLink.rel = 'noopener noreferrer';
             const sizeText = data.fileSize ? ` (${formatFileSize(data.fileSize)})` : '';
@@ -1302,24 +1384,61 @@ function hideMessageContextMenu() {
 function initNotifications() {
     if (typeof window === 'undefined' || !('Notification' in window)) {
         notificationsEnabled = false;
+        console.log('浏览器不支持通知功能');
         return;
     }
 
+    // 如果已经授权，直接启用
     if (Notification.permission === 'granted') {
         notificationsEnabled = true;
-    } else if (Notification.permission === 'default' && !notificationPermissionRequested) {
+        console.log('通知权限已授予');
+        return;
+    }
+
+    // 如果权限是默认状态且未请求过，则请求权限
+    if (Notification.permission === 'default' && !notificationPermissionRequested) {
         notificationPermissionRequested = true;
-        Notification.requestPermission().then((status) => {
-            notificationsEnabled = status === 'granted';
-        });
+        // 延迟请求，避免在页面加载时立即弹出
+        setTimeout(() => {
+            Notification.requestPermission().then((status) => {
+                notificationsEnabled = status === 'granted';
+                if (status === 'granted') {
+                    console.log('通知权限已授予');
+                } else {
+                    console.log('通知权限被拒绝:', status);
+                }
+            }).catch((error) => {
+                console.error('请求通知权限失败:', error);
+                notificationsEnabled = false;
+            });
+        }, 1000);
+    } else if (Notification.permission === 'denied') {
+        console.log('通知权限已被拒绝');
+        notificationsEnabled = false;
     }
 }
 
 function maybeShowNotification(message) {
+    // 检查通知是否可用
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+        return;
+    }
+    
+    // 如果权限被拒绝，尝试重新请求（某些情况下用户可能改变了设置）
+    if (Notification.permission === 'denied') {
+        notificationsEnabled = false;
+        return;
+    }
+    
+    // 如果权限是默认状态，尝试初始化
+    if (Notification.permission === 'default') {
+        initNotifications();
+        return;
+    }
+    
     if (!notificationsEnabled) return;
     if (!message || isOwnMessage(message)) return;
     if (document.hasFocus()) return;
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
 
     const title = message.isPrivate
         ? `私聊 - ${message.username || '好友'}`
@@ -1335,17 +1454,53 @@ function maybeShowNotification(message) {
     }
 
     try {
-        const notification = new Notification(title, {
+        // 使用动态获取的图标路径
+        const iconPath = getNotificationIconPath();
+        
+        const notificationOptions = {
             body: body,
-            icon: notificationIconPath,
+            tag: `bkfchat-${message.id || Date.now()}`, // 防止重复通知
+            requireInteraction: false,
             silent: false
-        });
+        };
+        
+        // 只在支持的情况下添加图标
+        try {
+            notificationOptions.icon = iconPath;
+            notificationOptions.badge = iconPath;
+        } catch (e) {
+            // 忽略图标设置错误
+        }
+        
+        const notification = new Notification(title, notificationOptions);
+        
         notification.onclick = () => {
             window.focus();
             notification.close();
         };
+        
+        // 自动关闭通知（5秒后）
+        setTimeout(() => {
+            notification.close();
+        }, 5000);
     } catch (error) {
         console.error('通知失败:', error);
+        // 如果通知失败，尝试不使用图标
+        try {
+            const notification = new Notification(title, {
+                body: body,
+                tag: `bkfchat-${message.id || Date.now()}`
+            });
+            notification.onclick = () => {
+                window.focus();
+                notification.close();
+            };
+            setTimeout(() => {
+                notification.close();
+            }, 5000);
+        } catch (err2) {
+            console.error('通知完全失败:', err2);
+        }
     }
 }
 
